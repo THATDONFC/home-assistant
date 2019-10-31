@@ -274,7 +274,6 @@ omit =
     homeassistant/components/growatt_server/sensor.py
     homeassistant/components/gstreamer/media_player.py
     homeassistant/components/gtfs/sensor.py
-    homeassistant/components/gtt/sensor.py
     homeassistant/components/habitica/*
     homeassistant/components/hangouts/*
     homeassistant/components/hangouts/__init__.py
@@ -514,6 +513,7 @@ omit =
     homeassistant/components/plex/media_player.py
     homeassistant/components/plex/sensor.py
     homeassistant/components/plex/server.py
+    homeassistant/components/plex/websockets.py
     homeassistant/components/plugwise/*
     homeassistant/components/plum_lightpad/*
     homeassistant/components/pocketcasts/sensor.py
@@ -719,6 +719,7 @@ omit =
     homeassistant/components/uber/sensor.py
     homeassistant/components/ubus/device_tracker.py
     homeassistant/components/ue_smart_radio/media_player.py
+    homeassistant/components/unifiled/*
     homeassistant/components/upcloud/*
     homeassistant/components/upnp/*
     homeassistant/components/upc_connect/*
