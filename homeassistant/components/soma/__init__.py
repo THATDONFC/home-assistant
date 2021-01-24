@@ -1,20 +1,18 @@
 """Support for Soma Smartshades."""
 import logging
 
-import voluptuous as vol
 from api.soma_api import SomaApi
 from requests import RequestException
+import voluptuous as vol
 
-import homeassistant.helpers.config_validation as cv
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_HOST, CONF_PORT
+import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.typing import HomeAssistantType
 
-from homeassistant.const import CONF_HOST, CONF_PORT
-
-from .const import DOMAIN, HOST, PORT, API
-
+from .const import API, DOMAIN, HOST, PORT
 
 DEVICES = "devices"
 
@@ -29,7 +27,7 @@ CONFIG_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
-SOMA_COMPONENTS = ["cover"]
+SOMA_COMPONENTS = ["cover", "sensor"]
 
 
 async def async_setup(hass, config):
@@ -76,6 +74,7 @@ class SomaEntity(Entity):
         self.device = device
         self.api = api
         self.current_position = 50
+        self.battery_state = 0
         self.is_available = True
 
     @property
@@ -122,4 +121,25 @@ class SomaEntity(Entity):
             self.is_available = False
             return
         self.current_position = 100 - response["position"]
+        try:
+            response = await self.hass.async_add_executor_job(
+                self.api.get_battery_level, self.device["mac"]
+            )
+        except RequestException:
+            _LOGGER.error("Connection to SOMA Connect failed")
+            self.is_available = False
+            return
+        if response["result"] != "success":
+            _LOGGER.error(
+                "Unable to reach device %s (%s)", self.device["name"], response["msg"]
+            )
+            self.is_available = False
+            return
+        # https://support.somasmarthome.com/hc/en-us/articles/360026064234-HTTP-API
+        # battery_level response is expected to be min = 360, max 410 for
+        # 0-100% levels above 410 are consider 100% and below 360, 0% as the
+        # device considers 360 the minimum to move the motor.
+        _battery = round(2 * (response["battery_level"] - 360))
+        battery = max(min(100, _battery), 0)
+        self.battery_state = battery
         self.is_available = True

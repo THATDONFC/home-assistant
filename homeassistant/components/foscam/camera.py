@@ -1,26 +1,21 @@
 """This component provides basic support for Foscam IP cameras."""
-import logging
 import asyncio
+import logging
 
 from libpyfoscam import FoscamCamera
-
 import voluptuous as vol
 
-from homeassistant.components.camera import Camera, PLATFORM_SCHEMA, SUPPORT_STREAM
+from homeassistant.components.camera import PLATFORM_SCHEMA, SUPPORT_STREAM, Camera
 from homeassistant.const import (
+    ATTR_ENTITY_ID,
     CONF_NAME,
-    CONF_USERNAME,
     CONF_PASSWORD,
     CONF_PORT,
-    ATTR_ENTITY_ID,
+    CONF_USERNAME,
 )
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.service import async_extract_entity_ids
+from homeassistant.helpers import config_validation as cv, entity_platform
 
-from .const import DOMAIN as FOSCAM_DOMAIN
-from .const import DATA as FOSCAM_DATA
-from .const import ENTITIES as FOSCAM_ENTITIES
-
+from .const import DATA as FOSCAM_DATA, ENTITIES as FOSCAM_ENTITIES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,28 +85,26 @@ SERVICE_PTZ_SCHEMA = vol.Schema(
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up a Foscam IP Camera."""
-
-    async def async_handle_ptz(service):
-        """Handle PTZ service call."""
-        movement = service.data[ATTR_MOVEMENT]
-        travel_time = service.data[ATTR_TRAVELTIME]
-        entity_ids = await async_extract_entity_ids(hass, service)
-
-        if not entity_ids:
-            return
-
-        _LOGGER.debug("Moving '%s' camera(s): %s", movement, entity_ids)
-
-        all_cameras = hass.data[FOSCAM_DATA][FOSCAM_ENTITIES]
-        target_cameras = [
-            camera for camera in all_cameras if camera.entity_id in entity_ids
-        ]
-
-        for camera in target_cameras:
-            await camera.async_perform_ptz(movement, travel_time)
-
-    hass.services.async_register(
-        FOSCAM_DOMAIN, SERVICE_PTZ, async_handle_ptz, schema=SERVICE_PTZ_SCHEMA
+    platform = entity_platform.current_platform.get()
+    assert platform is not None
+    platform.async_register_entity_service(
+        "ptz",
+        {
+            vol.Required(ATTR_MOVEMENT): vol.In(
+                [
+                    DIR_UP,
+                    DIR_DOWN,
+                    DIR_LEFT,
+                    DIR_RIGHT,
+                    DIR_TOPLEFT,
+                    DIR_TOPRIGHT,
+                    DIR_BOTTOMLEFT,
+                    DIR_BOTTOMRIGHT,
+                ]
+            ),
+            vol.Optional(ATTR_TRAVELTIME, default=DEFAULT_TRAVELTIME): cv.small_float,
+        },
+        "async_perform_ptz",
     )
 
     camera = FoscamCamera(
@@ -190,12 +183,7 @@ class HassFoscamCamera(Camera):
     async def stream_source(self):
         """Return the stream source."""
         if self._rtsp_port:
-            return "rtsp://{}:{}@{}:{}/videoMain".format(
-                self._username,
-                self._password,
-                self._foscam_session.host,
-                self._rtsp_port,
-            )
+            return f"rtsp://{self._username}:{self._password}@{self._foscam_session.host}:{self._rtsp_port}/videoMain"
         return None
 
     @property

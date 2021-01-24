@@ -1,59 +1,77 @@
 """Helper methods for various modules."""
 import asyncio
 from datetime import datetime, timedelta
-import threading
-import re
 import enum
-import socket
-import random
-import string
 from functools import wraps
+import random
+import re
+import socket
+import string
+import threading
 from types import MappingProxyType
 from typing import (
     Any,
+    Callable,
+    Coroutine,
+    Iterable,
+    KeysView,
     Optional,
     TypeVar,
-    Callable,
-    KeysView,
-    Union,  # noqa
-    Iterable,
-    Coroutine,
+    Union,
 )
 
 import slugify as unicode_slug
 
 from .dt import as_local, utcnow
 
-# pylint: disable=invalid-name
 T = TypeVar("T")
-U = TypeVar("U")
-ENUM_T = TypeVar("ENUM_T", bound=enum.Enum)
-# pylint: enable=invalid-name
+U = TypeVar("U")  # pylint: disable=invalid-name
+ENUM_T = TypeVar("ENUM_T", bound=enum.Enum)  # pylint: disable=invalid-name
 
 RE_SANITIZE_FILENAME = re.compile(r"(~|\.\.|/|\\)")
 RE_SANITIZE_PATH = re.compile(r"(~|\.(\.)+)")
 
 
 def sanitize_filename(filename: str) -> str:
-    r"""Sanitize a filename by removing .. / and \\."""
-    return RE_SANITIZE_FILENAME.sub("", filename)
+    """Check if a filename is safe.
+
+    Only to be used to compare to original filename to check if changed.
+    If result changed, the given path is not safe and should not be used,
+    raise an error.
+
+    DEPRECATED.
+    """
+    # Backwards compatible fix for misuse of method
+    if RE_SANITIZE_FILENAME.sub("", filename) != filename:
+        return ""
+    return filename
 
 
 def sanitize_path(path: str) -> str:
-    """Sanitize a path by removing ~ and .."""
-    return RE_SANITIZE_PATH.sub("", path)
+    """Check if a path is safe.
+
+    Only to be used to compare to original path to check if changed.
+    If result changed, the given path is not safe and should not be used,
+    raise an error.
+
+    DEPRECATED.
+    """
+    # Backwards compatible fix for misuse of method
+    if RE_SANITIZE_PATH.sub("", path) != path:
+        return ""
+    return path
 
 
-def slugify(text: str) -> str:
+def slugify(text: str, *, separator: str = "_") -> str:
     """Slugify a given text."""
-    return unicode_slug.slugify(text, separator="_")  # type: ignore
+    return unicode_slug.slugify(text, separator=separator)
 
 
 def repr_helper(inp: Any) -> str:
     """Help creating a more readable string representation of objects."""
     if isinstance(inp, (dict, MappingProxyType)):
         return ", ".join(
-            repr_helper(key) + "=" + repr_helper(item) for key, item in inp.items()
+            f"{repr_helper(key)}={repr_helper(item)}" for key, item in inp.items()
         )
     if isinstance(inp, datetime):
         return as_local(inp).isoformat()
@@ -101,7 +119,7 @@ def get_local_ip() -> str:
         sock.connect(("8.8.8.8", 80))
 
         return sock.getsockname()[0]  # type: ignore
-    except socket.error:
+    except OSError:
         try:
             return socket.gethostbyname(socket.gethostname())
         except socket.gaierror:
@@ -214,7 +232,6 @@ class Throttle:
 
             If we cannot acquire the lock, it is running so return None.
             """
-            # pylint: disable=protected-access
             if hasattr(method, "__self__"):
                 host = getattr(method, "__self__")
             elif is_func:
@@ -222,12 +239,14 @@ class Throttle:
             else:
                 host = args[0] if args else wrapper
 
+            # pylint: disable=protected-access # to _throttle
             if not hasattr(host, "_throttle"):
                 host._throttle = {}
 
             if id(self) not in host._throttle:
                 host._throttle[id(self)] = [threading.Lock(), None]
             throttle = host._throttle[id(self)]
+            # pylint: enable=protected-access
 
             if not throttle[0].acquire(False):
                 return throttled_value()

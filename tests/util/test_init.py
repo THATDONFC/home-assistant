@@ -1,5 +1,4 @@
 """Test Home Assistant util methods."""
-from unittest.mock import patch, MagicMock
 from datetime import datetime, timedelta
 
 import pytest
@@ -7,21 +6,23 @@ import pytest
 from homeassistant import util
 import homeassistant.util.dt as dt_util
 
+from tests.async_mock import MagicMock, patch
+
 
 def test_sanitize_filename():
     """Test sanitize_filename."""
     assert util.sanitize_filename("test") == "test"
-    assert util.sanitize_filename("/test") == "test"
-    assert util.sanitize_filename("..test") == "test"
-    assert util.sanitize_filename("\\test") == "test"
-    assert util.sanitize_filename("\\../test") == "test"
+    assert util.sanitize_filename("/test") == ""
+    assert util.sanitize_filename("..test") == ""
+    assert util.sanitize_filename("\\test") == ""
+    assert util.sanitize_filename("\\../test") == ""
 
 
 def test_sanitize_path():
     """Test sanitize_path."""
     assert util.sanitize_path("test/path") == "test/path"
-    assert util.sanitize_path("~test/path") == "test/path"
-    assert util.sanitize_path("~/../test/path") == "//test/path"
+    assert util.sanitize_path("~test/path") == ""
+    assert util.sanitize_path("~/../test/path") == ""
 
 
 def test_slugify():

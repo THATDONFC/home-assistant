@@ -1,6 +1,4 @@
 """Support for Verisure devices."""
-import logging
-import threading
 from datetime import timedelta
 
 from jsonpath import jsonpath
@@ -12,33 +10,33 @@ from homeassistant.const import (
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
     EVENT_HOMEASSISTANT_STOP,
+    HTTP_SERVICE_UNAVAILABLE,
 )
 from homeassistant.helpers import discovery
-from homeassistant.util import Throttle
 import homeassistant.helpers.config_validation as cv
+from homeassistant.util import Throttle
 
-_LOGGER = logging.getLogger(__name__)
-
-ATTR_DEVICE_SERIAL = "device_serial"
-
-CONF_ALARM = "alarm"
-CONF_CODE_DIGITS = "code_digits"
-CONF_DOOR_WINDOW = "door_window"
-CONF_GIID = "giid"
-CONF_HYDROMETERS = "hygrometers"
-CONF_LOCKS = "locks"
-CONF_DEFAULT_LOCK_CODE = "default_lock_code"
-CONF_MOUSE = "mouse"
-CONF_SMARTPLUGS = "smartplugs"
-CONF_THERMOMETERS = "thermometers"
-CONF_SMARTCAM = "smartcam"
-
-DOMAIN = "verisure"
-
-MIN_SCAN_INTERVAL = timedelta(minutes=1)
-DEFAULT_SCAN_INTERVAL = timedelta(minutes=1)
-
-SERVICE_CAPTURE_SMARTCAM = "capture_smartcam"
+from .const import (
+    ATTR_DEVICE_SERIAL,
+    CONF_ALARM,
+    CONF_CODE_DIGITS,
+    CONF_DEFAULT_LOCK_CODE,
+    CONF_DOOR_WINDOW,
+    CONF_GIID,
+    CONF_HYDROMETERS,
+    CONF_LOCKS,
+    CONF_MOUSE,
+    CONF_SMARTCAM,
+    CONF_SMARTPLUGS,
+    CONF_THERMOMETERS,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    LOGGER,
+    MIN_SCAN_INTERVAL,
+    SERVICE_CAPTURE_SMARTCAM,
+    SERVICE_DISABLE_AUTOLOCK,
+    SERVICE_ENABLE_AUTOLOCK,
+)
 
 HUB = None
 
@@ -68,12 +66,12 @@ CONFIG_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
-CAPTURE_IMAGE_SCHEMA = vol.Schema({vol.Required(ATTR_DEVICE_SERIAL): cv.string})
+DEVICE_SERIAL_SCHEMA = vol.Schema({vol.Required(ATTR_DEVICE_SERIAL): cv.string})
 
 
 def setup(hass, config):
     """Set up the Verisure component."""
-    global HUB
+    global HUB  # pylint: disable=global-statement
     HUB = VerisureHub(config[DOMAIN])
     HUB.update_overview = Throttle(config[DOMAIN][CONF_SCAN_INTERVAL])(
         HUB.update_overview
@@ -93,16 +91,44 @@ def setup(hass, config):
     ):
         discovery.load_platform(hass, component, DOMAIN, {}, config)
 
-    def capture_smartcam(service):
+    async def capture_smartcam(service):
         """Capture a new picture from a smartcam."""
-        device_id = service.data.get(ATTR_DEVICE_SERIAL)
-        HUB.smartcam_capture(device_id)
-        _LOGGER.debug("Capturing new image from %s", ATTR_DEVICE_SERIAL)
+        device_id = service.data[ATTR_DEVICE_SERIAL]
+        try:
+            await hass.async_add_executor_job(HUB.smartcam_capture, device_id)
+            LOGGER.debug("Capturing new image from %s", ATTR_DEVICE_SERIAL)
+        except verisure.Error as ex:
+            LOGGER.error("Could not capture image, %s", ex)
 
     hass.services.register(
-        DOMAIN, SERVICE_CAPTURE_SMARTCAM, capture_smartcam, schema=CAPTURE_IMAGE_SCHEMA
+        DOMAIN, SERVICE_CAPTURE_SMARTCAM, capture_smartcam, schema=DEVICE_SERIAL_SCHEMA
     )
 
+    async def disable_autolock(service):
+        """Disable autolock on a doorlock."""
+        device_id = service.data[ATTR_DEVICE_SERIAL]
+        try:
+            await hass.async_add_executor_job(HUB.disable_autolock, device_id)
+            LOGGER.debug("Disabling autolock on%s", ATTR_DEVICE_SERIAL)
+        except verisure.Error as ex:
+            LOGGER.error("Could not disable autolock, %s", ex)
+
+    hass.services.register(
+        DOMAIN, SERVICE_DISABLE_AUTOLOCK, disable_autolock, schema=DEVICE_SERIAL_SCHEMA
+    )
+
+    async def enable_autolock(service):
+        """Enable autolock on a doorlock."""
+        device_id = service.data[ATTR_DEVICE_SERIAL]
+        try:
+            await hass.async_add_executor_job(HUB.enable_autolock, device_id)
+            LOGGER.debug("Enabling autolock on %s", ATTR_DEVICE_SERIAL)
+        except verisure.Error as ex:
+            LOGGER.error("Could not enable autolock, %s", ex)
+
+    hass.services.register(
+        DOMAIN, SERVICE_ENABLE_AUTOLOCK, enable_autolock, schema=DEVICE_SERIAL_SCHEMA
+    )
     return True
 
 
@@ -116,8 +142,6 @@ class VerisureHub:
 
         self.config = domain_config
 
-        self._lock = threading.Lock()
-
         self.session = verisure.Session(
             domain_config[CONF_USERNAME], domain_config[CONF_PASSWORD]
         )
@@ -129,7 +153,7 @@ class VerisureHub:
         try:
             self.session.login()
         except verisure.Error as ex:
-            _LOGGER.error("Could not log in to verisure, %s", ex)
+            LOGGER.error("Could not log in to verisure, %s", ex)
             return False
         if self.giid:
             return self.set_giid()
@@ -140,7 +164,7 @@ class VerisureHub:
         try:
             self.session.logout()
         except verisure.Error as ex:
-            _LOGGER.error("Could not log out from verisure, %s", ex)
+            LOGGER.error("Could not log out from verisure, %s", ex)
             return False
         return True
 
@@ -149,7 +173,7 @@ class VerisureHub:
         try:
             self.session.set_giid(self.giid)
         except verisure.Error as ex:
-            _LOGGER.error("Could not set installation GIID, %s", ex)
+            LOGGER.error("Could not set installation GIID, %s", ex)
             return False
         return True
 
@@ -158,9 +182,9 @@ class VerisureHub:
         try:
             self.overview = self.session.get_overview()
         except verisure.ResponseError as ex:
-            _LOGGER.error("Could not read overview, %s", ex)
-            if ex.status_code == 503:  # Service unavailable
-                _LOGGER.info("Trying to log in again")
+            LOGGER.error("Could not read overview, %s", ex)
+            if ex.status_code == HTTP_SERVICE_UNAVAILABLE:  # Service unavailable
+                LOGGER.info("Trying to log in again")
                 self.login()
             else:
                 raise
@@ -175,10 +199,18 @@ class VerisureHub:
         """Capture a new image from a smartcam."""
         self.session.capture_image(device_id)
 
+    def disable_autolock(self, device_id):
+        """Disable autolock."""
+        self.session.set_lock_config(device_id, auto_lock_enabled=False)
+
+    def enable_autolock(self, device_id):
+        """Enable autolock."""
+        self.session.set_lock_config(device_id, auto_lock_enabled=True)
+
     def get(self, jpath, *args):
         """Get values from the overview that matches the jsonpath."""
         res = jsonpath(self.overview, jpath % args)
-        return res if res else []
+        return res or []
 
     def get_first(self, jpath, *args):
         """Get first value from the overview that matches the jsonpath."""
@@ -188,4 +220,4 @@ class VerisureHub:
     def get_image_info(self, jpath, *args):
         """Get values from the imageseries that matches the jsonpath."""
         res = jsonpath(self.imageseries, jpath % args)
-        return res if res else []
+        return res or []
